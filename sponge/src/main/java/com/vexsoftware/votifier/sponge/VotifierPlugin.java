@@ -33,8 +33,6 @@ import org.slf4j.Logger;
 import org.spongepowered.api.Sponge;
 import org.spongepowered.api.config.ConfigDir;
 import org.spongepowered.api.event.Listener;
-import org.spongepowered.api.event.cause.Cause;
-import org.spongepowered.api.event.cause.NamedCause;
 import org.spongepowered.api.event.game.state.GameStartedServerEvent;
 import org.spongepowered.api.event.game.state.GameStoppingServerEvent;
 import org.spongepowered.api.plugin.Plugin;
@@ -53,7 +51,8 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 
-@Plugin(id = "nuvotifier", name = "NuVotifier", version = "2.3.3")
+@Plugin(id = "nuvotifier", name = "NuVotifier", version = "2.3.7", authors = "ParallelBlock LLC",
+        description = "Safe, smart, and secure Votifier server plugin")
 public class VotifierPlugin implements VoteHandler, com.vexsoftware.votifier.VotifierPlugin, ForwardedVoteListener {
     private Logger logger;
     @Inject
@@ -163,44 +162,42 @@ public class VotifierPlugin implements VoteHandler, com.vexsoftware.votifier.Vot
 
         debug = node.getNode("debug").getBoolean(false);
 
-        boolean setUpPort = node.getNode("enableExternal").getBoolean(true); //Always default to running the external port
+// Load Votifier tokens.
+        ConfigurationNode tokenSection = node.getNode("tokens");
 
-        if (setUpPort) {
-            // Load Votifier tokens.
-            ConfigurationNode tokenSection = node.getNode("tokens");
-
-            if (tokenSection.hasMapChildren()) {
-                for (Map.Entry<Object, ? extends ConfigurationNode> entry : tokenSection.getChildrenMap().entrySet()) {
-                    if (entry.getKey() instanceof String) {
-                        tokens.put((String) entry.getKey(), KeyCreator.createKeyFrom(entry.getValue().getString()));
-                        logger.info("Loaded token for website: " + entry.getKey());
-                    }
+        if (tokenSection.hasMapChildren()) {
+            for (Map.Entry<Object, ? extends ConfigurationNode> entry : tokenSection.getChildrenMap().entrySet()) {
+                if (entry.getKey() instanceof String) {
+                    tokens.put((String) entry.getKey(), KeyCreator.createKeyFrom(entry.getValue().getString()));
+                    logger.info("Loaded token for website: " + entry.getKey());
                 }
-            } else {
-                String token = TokenUtil.newToken();
-                tokenSection.setValue(ImmutableMap.of("default", token));
-                tokens.put("default", KeyCreator.createKeyFrom(token));
-                try {
-                    loader.save(node);
-                } catch (IOException e) {
-                    logger.error("Error generating Votifier token", e);
-                    gracefulExit();
-                    return;
-                }
-                logger.info("------------------------------------------------------------------------------");
-                logger.info("No tokens were found in your configuration, so we've generated one for you.");
-                logger.info("Your default Votifier token is " + token + ".");
-                logger.info("You will need to provide this token when you submit your server to a voting");
-                logger.info("list.");
-                logger.info("------------------------------------------------------------------------------");
             }
+        } else {
+            String token = TokenUtil.newToken();
+            tokenSection.setValue(ImmutableMap.of("default", token));
+            tokens.put("default", KeyCreator.createKeyFrom(token));
+            try {
+                loader.save(node);
+            } catch (IOException e) {
+                logger.error("Error generating Votifier token", e);
+                gracefulExit();
+                return;
+            }
+            logger.info("------------------------------------------------------------------------------");
+            logger.info("No tokens were found in your configuration, so we've generated one for you.");
+            logger.info("Your default Votifier token is " + token + ".");
+            logger.info("You will need to provide this token when you submit your server to a voting");
+            logger.info("list.");
+            logger.info("------------------------------------------------------------------------------");
+        }
 
-            // Initialize the receiver.
-            final String host = node.getNode("host").getString(hostAddr);
-            final int port = node.getNode("port").getInt(8192);
-            if (debug)
-                logger.info("DEBUG mode enabled!");
+        // Initialize the receiver.
+        final String host = node.getNode("host").getString(hostAddr);
+        final int port = node.getNode("port").getInt(8192);
+        if (debug)
+            logger.info("DEBUG mode enabled!");
 
+        if (port >= 0) {
             final boolean disablev1 = node.getNode("disable-v1-protocol").getBoolean(false);
             if (disablev1) {
                 logger.info("------------------------------------------------------------------------------");
@@ -230,7 +227,7 @@ public class VotifierPlugin implements VoteHandler, com.vexsoftware.votifier.Vot
                         public void operationComplete(ChannelFuture future) throws Exception {
                             if (future.isSuccess()) {
                                 serverChannel = future.channel();
-                                logger.info("Votifier enabled on socket "+serverChannel.localAddress()+".");
+                                logger.info("Votifier enabled on socket " + serverChannel.localAddress() + ".");
                             } else {
                                 SocketAddress socketAddress = future.channel().localAddress();
                                 if (socketAddress == null) {
@@ -241,7 +238,11 @@ public class VotifierPlugin implements VoteHandler, com.vexsoftware.votifier.Vot
                         }
                     });
         } else {
-            logger.info("You have enableExternal set to false in your config.yml. NuVotifier will NOT listen to votes coming in from an external voting list.");
+            getLogger().info("------------------------------------------------------------------------------");
+            getLogger().info("Your Votifier port is less than 0, so we assume you do NOT want to start the");
+            getLogger().info("votifier port server! Votifier will not listen for votes over any port, and");
+            getLogger().info("will only listen for pluginMessaging forwarded votes!");
+            getLogger().info("------------------------------------------------------------------------------");
         }
 
         ConfigurationNode forwardingConfig = node.getNode("forwarding");
@@ -340,31 +341,35 @@ public class VotifierPlugin implements VoteHandler, com.vexsoftware.votifier.Vot
     }
 
     @Override
-    public void onVoteReceived(final Vote vote, VotifierSession.ProtocolVersion protocolVersion) throws Exception {
+    public void onVoteReceived(Channel channel, final Vote vote, VotifierSession.ProtocolVersion protocolVersion) throws Exception {
         if (debug) {
             if (protocolVersion == VotifierSession.ProtocolVersion.ONE) {
-                logger.info("Got a protocol v1 vote record -> " + vote);
+                logger.info("Got a protocol v1 vote record from " + channel.remoteAddress() + " -> " + vote);
             } else {
-                logger.info("Got a protocol v2 vote record -> " + vote);
+                logger.info("Got a protocol v2 vote record from " + channel.remoteAddress() + " -> " + vote);
             }
         }
         Sponge.getScheduler().createTaskBuilder()
                 .execute(new Runnable() {
                     @Override
                     public void run() {
-                        VotifierEvent event = new VotifierEvent(vote, Cause.of(NamedCause.of("Vote", vote)));
+                        VotifierEvent event = new VotifierEvent(vote, Sponge.getCauseStackManager().getCurrentCause());
                         Sponge.getEventManager().post(event);
                     }
                 })
-                .async()
                 .submit(this);
     }
 
     @Override
-    public void onError(Channel channel, Vote vote, Throwable throwable) {
+    public void onError(Channel channel, boolean alreadyHandledVote, Throwable throwable) {
         if (debug) {
-            logger.error("Unable to process vote from " + channel.remoteAddress(), throwable);
-        } else {
+            if (alreadyHandledVote) {
+                logger.error("Vote processed, however an exception " +
+                        "occurred with a vote from " + channel.remoteAddress(), throwable);
+            } else {
+                logger.error("Unable to process vote from " + channel.remoteAddress(), throwable);
+            }
+        } else if (!alreadyHandledVote) {
             logger.error("Unable to process vote from " + channel.remoteAddress());
         }
     }
@@ -378,11 +383,10 @@ public class VotifierPlugin implements VoteHandler, com.vexsoftware.votifier.Vot
                 .execute(new Runnable() {
                     @Override
                     public void run() {
-                        VotifierEvent event = new VotifierEvent(v, Cause.of(NamedCause.of("ForwardedVote", v)));
+                        VotifierEvent event = new VotifierEvent(v, Sponge.getCauseStackManager().getCurrentCause());
                         Sponge.getEventManager().post(event);
                     }
                 })
-                .async()
                 .submit(this);
     }
 }

@@ -1,6 +1,6 @@
 package com.vexsoftware.votifier.bungee.forwarding.cache;
 
-import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.ImmutableList;
 import com.vexsoftware.votifier.model.Vote;
 
 import java.util.*;
@@ -13,9 +13,12 @@ public class MemoryVoteCache implements VoteCache {
 
     public MemoryVoteCache(int initialSize) {
         voteCache = new HashMap<>(initialSize);
+        this.playerVoteCache = new HashMap<>();
     }
 
     protected final Map<String, Collection<Vote>> voteCache;
+
+    protected final Map<String, Collection<Vote>> playerVoteCache;
 
     protected final ReentrantLock cacheLock = new ReentrantLock();
 
@@ -23,7 +26,7 @@ public class MemoryVoteCache implements VoteCache {
     public Collection<String> getCachedServers() {
         cacheLock.lock();
         try {
-            return ImmutableSet.copyOf(voteCache.keySet());
+            return ImmutableList.copyOf(voteCache.keySet());
         } finally {
             cacheLock.unlock();
         }
@@ -36,10 +39,38 @@ public class MemoryVoteCache implements VoteCache {
         try {
             Collection<Vote> voteCollection = voteCache.get(server);
             if (voteCollection == null) {
-                voteCollection = new LinkedHashSet<>();
+                voteCollection = new ArrayList<>();
                 voteCache.put(server, voteCollection);
             }
             voteCollection.add(v);
+        } finally {
+            cacheLock.unlock();
+        }
+    }
+
+    @Override
+    public void addToCachePlayer(Vote v, String player) {
+        if (player == null) throw new NullPointerException();
+        cacheLock.lock();
+        try {
+            Collection<Vote> voteCollection = playerVoteCache.get(player);
+            if (voteCollection == null) {
+                voteCollection = new ArrayList<>();
+                playerVoteCache.put(player, voteCollection);
+            }
+            voteCollection.add(v);
+        } finally {
+            cacheLock.unlock();
+        }
+    }
+
+    @Override
+    public Collection<Vote> evictPlayer(String player) {
+        if (player == null) throw new NullPointerException();
+        cacheLock.lock();
+        try {
+            Collection<Vote> fromCollection = playerVoteCache.remove(player);
+            return fromCollection != null ? fromCollection : ImmutableList.of();
         } finally {
             cacheLock.unlock();
         }
@@ -51,7 +82,7 @@ public class MemoryVoteCache implements VoteCache {
         cacheLock.lock();
         try {
             Collection<Vote> fromCollection = voteCache.remove(server);
-            return fromCollection != null ? ImmutableSet.copyOf(fromCollection) : ImmutableSet.<Vote>of();
+            return fromCollection != null ? fromCollection : ImmutableList.of();
         } finally {
             cacheLock.unlock();
         }

@@ -215,45 +215,42 @@ public class NuVotifierBukkit extends JavaPlugin implements VoteHandler, Votifie
 
         debug = cfg.getBoolean("debug", false);
 
-        boolean setUpPort = cfg.getBoolean("enableExternal", true); //Always default to running the external port
+// Load Votifier tokens.
+        ConfigurationSection tokenSection = cfg.getConfigurationSection("tokens");
 
-        if (setUpPort) {
-            // Load Votifier tokens.
-            ConfigurationSection tokenSection = cfg.getConfigurationSection("tokens");
-
-            if (tokenSection != null) {
-                Map<String, Object> websites = tokenSection.getValues(false);
-                for (Map.Entry<String, Object> website : websites.entrySet()) {
-                    tokens.put(website.getKey(), KeyCreator.createKeyFrom(website.getValue().toString()));
-                    getLogger().info("Loaded token for website: " + website.getKey());
-                }
-            } else {
-                String token = TokenUtil.newToken();
-                tokenSection = cfg.createSection("tokens");
-                tokenSection.set("default", token);
-                tokens.put("default", KeyCreator.createKeyFrom(token));
-                try {
-                    cfg.save(config);
-                } catch (IOException e) {
-                    getLogger().log(Level.SEVERE,
-                            "Error generating Votifier token", e);
-                    gracefulExit();
-                    return;
-                }
-                getLogger().info("------------------------------------------------------------------------------");
-                getLogger().info("No tokens were found in your configuration, so we've generated one for you.");
-                getLogger().info("Your default Votifier token is " + token + ".");
-                getLogger().info("You will need to provide this token when you submit your server to a voting");
-                getLogger().info("list.");
-                getLogger().info("------------------------------------------------------------------------------");
+        if (tokenSection != null) {
+            Map<String, Object> websites = tokenSection.getValues(false);
+            for (Map.Entry<String, Object> website : websites.entrySet()) {
+                tokens.put(website.getKey(), KeyCreator.createKeyFrom(website.getValue().toString()));
+                getLogger().info("Loaded token for website: " + website.getKey());
             }
+        } else {
+            String token = TokenUtil.newToken();
+            tokenSection = cfg.createSection("tokens");
+            tokenSection.set("default", token);
+            tokens.put("default", KeyCreator.createKeyFrom(token));
+            try {
+                cfg.save(config);
+            } catch (IOException e) {
+                getLogger().log(Level.SEVERE,
+                        "Error generating Votifier token", e);
+                gracefulExit();
+                return;
+            }
+            getLogger().info("------------------------------------------------------------------------------");
+            getLogger().info("No tokens were found in your configuration, so we've generated one for you.");
+            getLogger().info("Your default Votifier token is " + token + ".");
+            getLogger().info("You will need to provide this token when you submit your server to a voting");
+            getLogger().info("list.");
+            getLogger().info("------------------------------------------------------------------------------");
+        }
 
-            // Initialize the receiver.
-            final String host = cfg.getString("host", hostAddr);
-            final int port = cfg.getInt("port", 8192);
-            if (debug)
-                getLogger().info("DEBUG mode enabled!");
-
+        // Initialize the receiver.
+        final String host = cfg.getString("host", hostAddr);
+        final int port = cfg.getInt("port", 8192);
+        if (debug)
+            getLogger().info("DEBUG mode enabled!");
+        if (port >= 0) {
             final boolean disablev1 = cfg.getBoolean("disable-v1-protocol");
             if (disablev1) {
                 getLogger().info("------------------------------------------------------------------------------");
@@ -283,7 +280,7 @@ public class NuVotifierBukkit extends JavaPlugin implements VoteHandler, Votifie
                         public void operationComplete(ChannelFuture future) throws Exception {
                             if (future.isSuccess()) {
                                 serverChannel = future.channel();
-                                getLogger().info("Votifier enabled on socket "+serverChannel.localAddress()+".");
+                                getLogger().info("Votifier enabled on socket " + serverChannel.localAddress() + ".");
                             } else {
                                 SocketAddress socketAddress = future.channel().localAddress();
                                 if (socketAddress == null) {
@@ -294,7 +291,11 @@ public class NuVotifierBukkit extends JavaPlugin implements VoteHandler, Votifie
                         }
                     });
         } else {
-            getLogger().info("You have enableExternal set to false in your config.yml. NuVotifier will NOT listen to votes coming in from an external voting list.");
+            getLogger().info("------------------------------------------------------------------------------");
+            getLogger().info("Your Votifier port is less than 0, so we assume you do NOT want to start the");
+            getLogger().info("votifier port server! Votifier will not listen for votes over any port, and");
+            getLogger().info("will only listen for pluginMessaging forwarded votes!");
+            getLogger().info("------------------------------------------------------------------------------");
         }
 
         ConfigurationSection forwardingConfig = cfg.getConfigurationSection("forwarding");
@@ -368,15 +369,18 @@ public class NuVotifierBukkit extends JavaPlugin implements VoteHandler, Votifie
     }
 
     @Override
-    public void onVoteReceived(final Vote vote, VotifierSession.ProtocolVersion protocolVersion) throws Exception {
-        String protocol;
+    public void onVoteReceived(Channel channel, final Vote vote, VotifierSession.ProtocolVersion protocolVersion) throws Exception {
+        String protocol = null;
         if (protocolVersion == VotifierSession.ProtocolVersion.ONE) {
+            if (debug) {
+                getLogger().info("Got a protocol v1 vote record from " + channel.remoteAddress() + " -> " + vote);
+            }
             protocol = "v1";
         } else {
+            if (debug) {
+                getLogger().info("Got a protocol v2 vote record from " + channel.remoteAddress() + " -> " + vote);
+            }
             protocol = "v2";
-        }
-        if (debug) {
-            getLogger().info("Got a protocol " + protocol + " vote record -> " + vote);
         }
 
         if (instance.getConfig().getBoolean("database.use") == true) {            
@@ -384,8 +388,13 @@ public class NuVotifierBukkit extends JavaPlugin implements VoteHandler, Votifie
                 if (debug) {
                     getLogger().info("Logged the vote to the database");
                 }
-            } else { /* Error triggered in Queries.java */ }
+            } else {
+                if (debug) {
+                    getLogger().log(Level.INFO, "Failed to log vote to database:{0} {1}", new Object[]{vote.getUsername(), vote.getServiceName()});
+                }
+            }
         }
+        
         Bukkit.getScheduler().runTask(this, new Runnable() {
             @Override
             public void run() {
@@ -395,11 +404,15 @@ public class NuVotifierBukkit extends JavaPlugin implements VoteHandler, Votifie
     }
 
     @Override
-    public void onError(Channel channel, Vote vote, Throwable throwable) {
-        
+    public void onError(Channel channel, boolean alreadyHandledVote, Throwable throwable) {
         if (debug) {
-            getLogger().log(Level.SEVERE, "Unable to process vote from " + channel.remoteAddress(), throwable);
-        } else {
+            if (alreadyHandledVote) {
+                getLogger().log(Level.SEVERE, "Vote processed, however an exception " +
+                        "occurred with a vote from " + channel.remoteAddress(), throwable);
+            } else {
+                getLogger().log(Level.SEVERE, "Unable to process vote from " + channel.remoteAddress(), throwable);
+            }
+        } else if (!alreadyHandledVote) {
             getLogger().log(Level.SEVERE, "Unable to process vote from " + channel.remoteAddress());
         }
     }

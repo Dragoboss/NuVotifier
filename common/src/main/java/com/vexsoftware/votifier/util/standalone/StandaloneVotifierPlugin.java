@@ -74,16 +74,16 @@ public class StandaloneVotifierPlugin implements VotifierPlugin, VoteHandler {
 
     @Override
     public String getVersion() {
-        return "2.3.3";
+        return "2.3.5";
     }
 
     @Override
-    public void onVoteReceived(Vote vote, VotifierSession.ProtocolVersion protocolVersion) throws Exception {
+    public void onVoteReceived(Channel channel, Vote vote, VotifierSession.ProtocolVersion protocolVersion) throws Exception {
         receiver.onVote(vote);
     }
 
     @Override
-    public void onError(Channel channel, Vote vote, Throwable throwable) {
+    public void onError(Channel channel, boolean alreadyHandledVote, Throwable throwable) {
         receiver.onException(throwable);
     }
 }
