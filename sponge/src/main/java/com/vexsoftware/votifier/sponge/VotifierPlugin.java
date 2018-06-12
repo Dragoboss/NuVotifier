@@ -361,7 +361,7 @@ public class VotifierPlugin implements VoteHandler, com.vexsoftware.votifier.Vot
     }
 
     @Override
-    public void onError(Channel channel, Throwable throwable) {
+    public void onError(Channel channel, Vote vote, Throwable throwable) {
         if (debug) {
             logger.error("Unable to process vote from " + channel.remoteAddress(), throwable);
         } else {

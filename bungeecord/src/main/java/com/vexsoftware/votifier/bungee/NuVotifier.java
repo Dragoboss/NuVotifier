@@ -13,6 +13,8 @@ import com.vexsoftware.votifier.bungee.forwarding.cache.FileVoteCache;
 import com.vexsoftware.votifier.bungee.forwarding.cache.MemoryVoteCache;
 import com.vexsoftware.votifier.bungee.forwarding.cache.VoteCache;
 import com.vexsoftware.votifier.bungee.forwarding.proxy.ProxyForwardingVoteSource;
+import com.vexsoftware.votifier.bungee.util.mysql.MySQL;
+import com.vexsoftware.votifier.bungee.util.mysql.Queries;
 import com.vexsoftware.votifier.model.Vote;
 import com.vexsoftware.votifier.net.VotifierSession;
 import com.vexsoftware.votifier.net.protocol.VoteInboundHandler;
@@ -45,6 +47,8 @@ import java.net.UnknownHostException;
 import java.nio.charset.StandardCharsets;
 import java.security.Key;
 import java.security.KeyPair;
+import java.sql.Connection;
+import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -52,9 +56,14 @@ import java.util.Map;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executors;
 import java.util.concurrent.FutureTask;
+import java.util.concurrent.TimeUnit;
 import java.util.logging.Level;
 
 public class NuVotifier extends Plugin implements VoteHandler, VotifierPlugin {
+    private Queries query = this.query;
+    private Connection connection = null;
+    public static NuVotifier instance;
+    public Configuration configuration; 
 
     /**
      * The server channel.
@@ -94,9 +103,8 @@ public class NuVotifier extends Plugin implements VoteHandler, VotifierPlugin {
 
         // Handle configuration.
         File config = new File(getDataFolder() + "/config.yml");
-        File rsaDirectory = new File(getDataFolder() + "/rsa");
-        Configuration configuration;
-
+        File rsaDirectory = new File(getDataFolder() + "/rsa"); 
+        
         if (!config.exists()) {
             try {
                 // First time run - do some initialization.
@@ -138,6 +146,23 @@ public class NuVotifier extends Plugin implements VoteHandler, VotifierPlugin {
             configuration = ConfigurationProvider.getProvider(YamlConfiguration.class).load(config);
         } catch (IOException e) {
             throw new RuntimeException("Unable to load configuration", e);
+        }
+        
+        String dbhost = configuration.getString("database.dbhost");
+        String dbport = configuration.getString("database.dbport");
+        String database = configuration.getString("database.database");
+        String dbuser = configuration.getString("database.dbuser");
+        String dbpass = configuration.getString("database.dbpass");
+        if (configuration.getBoolean("database.use") == true) {
+            MySQL MySQL = new MySQL(this, dbhost, dbport, database, dbuser, dbpass);
+        
+            try {
+                this.connection = MySQL.openConnection();
+                this.query = new Queries(this.connection);
+                createMySQL();	
+            } catch (ClassNotFoundException | SQLException e) {
+                e.printStackTrace();
+            }
         }
 
         /*
@@ -348,7 +373,7 @@ public class NuVotifier extends Plugin implements VoteHandler, VotifierPlugin {
     }
 
     @Override
-    public void onError(Channel channel, Throwable throwable) {
+    public void onError(Channel channel, Vote vote, Throwable throwable) {
         if (debug) {
             getLogger().log(Level.SEVERE, "Unable to process vote from " + channel.remoteAddress(), throwable);
         } else {
@@ -373,5 +398,23 @@ public class NuVotifier extends Plugin implements VoteHandler, VotifierPlugin {
 
     public boolean isDebug() {
         return debug;
+    }
+    
+    private void createMySQL() {
+        boolean created = false;
+        created = query.createMySQLTable();
+        if (!created) {
+            getLogger().info("Error while creating MySQL database table. Do you have the correct database details in the config?");
+        }
+    }
+    
+    public void keepMySQLAlive() {
+        long delay = configuration.getLong("database.updateTime") * 1L;
+            ProxyServer.getInstance().getScheduler().schedule(instance, new Runnable() {
+            @Override
+            public void run() {
+                query.keepConnectionAlive();
+            }
+        }, 0L, delay, TimeUnit.SECONDS);
     }
 }

@@ -33,6 +33,8 @@ import com.vexsoftware.votifier.net.protocol.v1crypto.RSAIO;
 import com.vexsoftware.votifier.net.protocol.v1crypto.RSAKeygen;
 import com.vexsoftware.votifier.util.KeyCreator;
 import com.vexsoftware.votifier.util.TokenUtil;
+import com.vexsoftware.votifier.util.mysql.MySQL;
+import com.vexsoftware.votifier.util.mysql.Queries;
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelFuture;
@@ -53,9 +55,14 @@ import java.net.SocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.security.Key;
 import java.security.KeyPair;
+import java.sql.Connection;
+import java.sql.SQLException;
+import java.util.Date;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.logging.Level;
+import org.bukkit.ChatColor;
+import org.bukkit.scheduler.BukkitRunnable;
 
 /**
  * The main Votifier plugin class.
@@ -64,11 +71,13 @@ import java.util.logging.Level;
  * @author Kramer Campbell
  */
 public class NuVotifierBukkit extends JavaPlugin implements VoteHandler, VotifierPlugin, ForwardedVoteListener {
+    private Queries query = this.query;
+    private Connection connection = null;
 
     /**
      * The Votifier instance.
      */
-    private static NuVotifierBukkit instance;
+    public static NuVotifierBukkit instance;
 
     /**
      * The current Votifier version.
@@ -128,6 +137,22 @@ public class NuVotifierBukkit extends JavaPlugin implements VoteHandler, Votifie
         if (hostAddr == null || hostAddr.length() == 0)
             hostAddr = "0.0.0.0";
 
+        String dbhost = getConfig().getString("database.dbhost");
+        String dbport = getConfig().getString("database.dbport");
+        String database = getConfig().getString("database.database");
+        String dbuser = getConfig().getString("database.dbuser");
+        String dbpass = getConfig().getString("database.dbpass");
+        if (getConfig().getBoolean("database.use") == true) {
+            MySQL MySQL = new MySQL(this, dbhost, dbport, database, dbuser, dbpass);
+        
+            try {
+                this.connection = MySQL.openConnection();
+                this.query = new Queries(this.connection);
+                createMySQL();	
+            } catch (ClassNotFoundException | SQLException e) {
+                e.printStackTrace();
+            }          
+        }      
         /*
          * Create configuration file if it does not exists; otherwise, load it
          */
@@ -289,6 +314,7 @@ public class NuVotifierBukkit extends JavaPlugin implements VoteHandler, Votifie
                 getLogger().severe("No vote forwarding method '" + method + "' known. Defaulting to noop implementation.");
             }
         }
+        keepMySQLAlive();
     }
 
     @Override
@@ -343,12 +369,22 @@ public class NuVotifierBukkit extends JavaPlugin implements VoteHandler, Votifie
 
     @Override
     public void onVoteReceived(final Vote vote, VotifierSession.ProtocolVersion protocolVersion) throws Exception {
+        String protocol;
+        if (protocolVersion == VotifierSession.ProtocolVersion.ONE) {
+            protocol = "v1";
+        } else {
+            protocol = "v2";
+        }
         if (debug) {
-            if (protocolVersion == VotifierSession.ProtocolVersion.ONE) {
-                getLogger().info("Got a protocol v1 vote record -> " + vote);
-            } else {
-                getLogger().info("Got a protocol v2 vote record -> " + vote);
-            }
+            getLogger().info("Got a protocol " + protocol + " vote record -> " + vote);
+        }
+
+        if (instance.getConfig().getBoolean("database.use") == true) {            
+            if (query.insertVoteReceived(protocol, vote.getAddress(), vote.getServiceName(), vote.getUsername())) {
+                if (debug) {
+                    getLogger().info("Logged the vote to the database");
+                }
+            } else { /* Error triggered in Queries.java */ }
         }
         Bukkit.getScheduler().runTask(this, new Runnable() {
             @Override
@@ -359,7 +395,8 @@ public class NuVotifierBukkit extends JavaPlugin implements VoteHandler, Votifie
     }
 
     @Override
-    public void onError(Channel channel, Throwable throwable) {
+    public void onError(Channel channel, Vote vote, Throwable throwable) {
+        
         if (debug) {
             getLogger().log(Level.SEVERE, "Unable to process vote from " + channel.remoteAddress(), throwable);
         } else {
@@ -378,5 +415,26 @@ public class NuVotifierBukkit extends JavaPlugin implements VoteHandler, Votifie
                 Bukkit.getPluginManager().callEvent(new VotifierEvent(v));
             }
         });
+    }
+    
+    private void createMySQL() {
+        boolean created = false;
+        created = query.createMySQLTable();
+        if (!created) {
+            getLogger().info("Error while creating MySQL database table. Do you have the correct database details in the config?");
+
+            Bukkit.getPluginManager().disablePlugin(this);
+        }
+    }
+    
+    public void keepMySQLAlive() {
+        long delay = instance.getConfig().getLong("database.updateTime") * 20L;
+        Bukkit.getScheduler().runTaskTimerAsynchronously(instance, new BukkitRunnable() {
+            @Override
+            public void run() {
+                getLogger().info("Attempting to keep MySQL connection alive...");
+                query.keepConnectionAlive();
+            }
+        }, 0L, delay);
     }
 }

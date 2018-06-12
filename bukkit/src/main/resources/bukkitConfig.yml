@@ -31,3 +31,12 @@ forwarding:
   method: none
   pluginMessaging:
     channel: NuVotifier
+    
+database:
+    use: true
+    dbhost: #
+    dbport: #
+    database: #
+    dbuser: #
+    dbpass: #
+    updateTime: 60
