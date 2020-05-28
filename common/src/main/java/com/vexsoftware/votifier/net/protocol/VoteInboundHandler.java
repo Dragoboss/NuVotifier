@@ -32,13 +32,13 @@ public class VoteInboundHandler extends SimpleChannelInboundHandler<Vote> {
         }
     }
 
-    public void exceptionCaught(ChannelHandlerContext ctx, final Vote vote, Throwable cause) throws Exception {
+    @Override
+    public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
         VotifierSession session = ctx.channel().attr(VotifierSession.KEY).get();
 
         handler.onError(ctx.channel(), session.hasCompletedVote(), cause);
 
         if (session.getVersion() == VotifierSession.ProtocolVersion.TWO) {
-
             JsonObject object = new JsonObject();
             object.addProperty("status", "error");
             object.addProperty("cause", cause.getClass().getSimpleName());

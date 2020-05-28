@@ -1,6 +1,6 @@
 package com.vexsoftware.votifier.net.protocol;
 
-import com.vexsoftware.votifier.VotifierPlugin;
+import com.vexsoftware.votifier.platform.VotifierPlugin;
 import com.vexsoftware.votifier.model.Vote;
 import com.vexsoftware.votifier.net.protocol.v1crypto.RSA;
 import io.netty.buffer.ByteBuf;
@@ -16,7 +16,7 @@ import java.util.List;
  */
 public class VotifierProtocol1Decoder extends ByteToMessageDecoder {
     @Override
-    protected void decode(ChannelHandlerContext ctx, ByteBuf buf, List<Object> list) throws Exception {
+    protected void decode(ChannelHandlerContext ctx, ByteBuf buf, List<Object> list) {
         if (buf.readableBytes() < 256) {
             return;
         }
