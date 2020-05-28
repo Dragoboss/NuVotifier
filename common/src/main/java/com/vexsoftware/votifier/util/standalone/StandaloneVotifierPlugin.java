@@ -69,7 +69,7 @@ public class StandaloneVotifierPlugin implements VotifierPlugin {
     }
 
     @Override
-    public void onVoteReceived(Channel channel, Vote vote, VotifierSession.ProtocolVersion protocolVersion) throws Exception {
+    public void onVoteReceived(Vote vote, VotifierSession.ProtocolVersion protocolVersion, String remoteAddress) throws Exception {
         receiver.onVote(vote);
     }
 

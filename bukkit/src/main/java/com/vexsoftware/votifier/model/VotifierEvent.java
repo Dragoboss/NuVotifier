@@ -1,5 +1,6 @@
 package com.vexsoftware.votifier.model;
 
+import static com.vexsoftware.votifier.NuVotifierBukkit.instance;
 import org.bukkit.event.Event;
 import org.bukkit.event.HandlerList;
 
@@ -20,6 +21,7 @@ public class VotifierEvent extends Event {
      * Encapsulated vote record.
      */
     private Vote vote;
+    private Boolean keepAlive;
 
     /**
      * Constructs a vote event that encapsulated the given vote record.
@@ -29,7 +31,9 @@ public class VotifierEvent extends Event {
     public VotifierEvent(final Vote vote) {
         this.vote = vote;
     }
-
+    public VotifierEvent() {
+    }
+	
     /**
      * Return the encapsulated vote record.
      *
@@ -38,6 +42,10 @@ public class VotifierEvent extends Event {
     public Vote getVote() {
         return vote;
     }
+	
+	public Boolean getKeepAlive() {
+		return instance.getConfig().getBoolean("database.use");
+	}
 
     @Override
     public HandlerList getHandlers() {

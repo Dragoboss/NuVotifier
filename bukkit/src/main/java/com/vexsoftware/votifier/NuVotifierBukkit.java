@@ -381,15 +381,11 @@ public class NuVotifierBukkit extends JavaPlugin implements VoteHandler, Votifie
     }
 
     @Override
-    public void onVoteReceived(Channel channel, final Vote vote, VotifierSession.ProtocolVersion protocolVersion) {
+    public void onVoteReceived(final Vote vote, VotifierSession.ProtocolVersion protocolVersion, String remoteAddress) {
         String protocol = null;
          if (debug) {
-             if (protocolVersion == VotifierSession.ProtocolVersion.ONE) {
-			   protocol = "v1";
-                getLogger().info("Got a protocol v1 vote record from " + channel.remoteAddress() + " -> " + vote);
-             } else {
-				getLogger().info("Got a protocol v2 vote record from " + channel.remoteAddress() + " -> " + vote);
-				protocol = "v2";
+			if (debug) {
+				getLogger().info("Got a " + protocolVersion.humanReadable + " vote record from " + remoteAddress + " -> " + vote);
 			}
          }
         if (instance.getConfig().getBoolean("database.use") == true) {            
@@ -404,7 +400,7 @@ public class NuVotifierBukkit extends JavaPlugin implements VoteHandler, Votifie
             }
         }
         
-        Bukkit.getScheduler().runTask(this, () -> Bukkit.getPluginManager().callEvent(new VotifierEvent(vote)));
+        Bukkit.getScheduler().runTask(this, () -> fireVotifierEvent(vote));
     }
 
     @Override
@@ -426,7 +422,20 @@ public class NuVotifierBukkit extends JavaPlugin implements VoteHandler, Votifie
         if (debug) {
             getLogger().info("Got a forwarded vote -> " + v);
         }
-        Bukkit.getScheduler().runTask(this, () -> Bukkit.getPluginManager().callEvent(new VotifierEvent(v)));
+        Bukkit.getScheduler().runTask(this, () -> fireVotifierEvent(v));
+    }
+	
+	private void fireVotifierEvent(Vote vote) {
+        if (VotifierEvent.getHandlerList().getRegisteredListeners().length == 0) {
+            getLogger().log(Level.SEVERE, "A vote was received, but you don't have any listeners available to listen for it.");
+            getLogger().log(Level.SEVERE, "See https://github.com/NuVotifier/NuVotifier/wiki/Setup-Guide#vote-listeners for");
+            getLogger().log(Level.SEVERE, "a list of listeners you can configure.");
+        }
+        Bukkit.getPluginManager().callEvent(new VotifierEvent(vote));
+    }
+	
+	private void fireKeepAliveEvent() {
+		Bukkit.getPluginManager().callEvent(new VotifierEvent());
     }
     
     private void createMySQL() {
@@ -441,12 +450,13 @@ public class NuVotifierBukkit extends JavaPlugin implements VoteHandler, Votifie
     
     public void keepMySQLAlive() {
         long delay = instance.getConfig().getLong("database.updateTime") * 20L;
-        Bukkit.getScheduler().runTaskTimerAsynchronously(instance, new BukkitRunnable() {
-            @Override
-            public void run() {
-                getLogger().info("Attempting to keep MySQL connection alive...");
-                query.keepConnectionAlive();
-            }
-        }, 0L, delay);
+        //Bukkit.getScheduler().runTaskTimerAsynchronously(instance, new BukkitRunnable() {
+            //@Override
+            //public void run() {
+			getLogger().info("Attempting to keep MySQL connection alive...");
+			query.keepConnectionAlive();
+            //}
+        //}, 0L, delay);
+		Bukkit.getScheduler().runTask(this, () -> fireKeepAliveEvent());
     }
 }

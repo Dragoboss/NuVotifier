@@ -378,12 +378,12 @@ public class NuVotifier extends Plugin implements VoteHandler, ProxyVotifierPlug
     }
 
     @Override
-    public void onVoteReceived(Channel channel, final Vote vote, VotifierSession.ProtocolVersion protocolVersion) {
+    public void onVoteReceived(final Vote vote, VotifierSession.ProtocolVersion protocolVersion, String remoteAddress) {
         if (debug) {
             if (protocolVersion == VotifierSession.ProtocolVersion.ONE) {
-                getLogger().info("Got a protocol v1 vote record from " + channel.remoteAddress() + " -> " + vote);
+                getLogger().info("Got a protocol v1 vote record from " + remoteAddress + " -> " + vote);
             } else {
-                getLogger().info("Got a protocol v2 vote record from " + channel.remoteAddress() + " -> " + vote);
+                getLogger().info("Got a protocol v2 vote record from " + remoteAddress + " -> " + vote);
             }
         }
 
